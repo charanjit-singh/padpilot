@@ -54,9 +54,9 @@
     "triangle": "shift+tab",
 
     "l1": "cmd+shift+[",
-    "r1": "cmd+shift+]",
-    "l2": "ctrl+left",
-    "r2": "ctrl+right",
+    "r1": "gyro-tap:cmd+shift+]",
+    "l2": "click:left",
+    "r2": "click:right",
     "swipeLeft": "ctrl+right",
     "swipeRight": "ctrl+left",
     "swipeUp": "ctrl+up",
@@ -70,8 +70,8 @@
     "ps.long": "toggle",
 
     "touchpad": "listen",
-    "l3": "click:left",
-    "r3": "click:right"
+    "l3": "none",
+    "r3": "none"
   },
 
   "terminal": {

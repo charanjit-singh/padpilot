@@ -40,11 +40,14 @@ struct Config: Decodable {
     var scrollSpeed = 10.0
     // Touchpad
     var touchpadMode = "trackpad", trackpadSpeed = 900.0, trackpadAccel = 2.0, tapToClick = true, twoFingerScroll = 1400.0
-    var trackpadSmoothing = 0.5, trackpadSettle = 0.05, trackpadInvertY = true
+    var trackpadSmoothing = 0.5, trackpadSettle = 0.05, trackpadInvertY = true, twoFingerSwipe = 0.3
     var notifyStrength = 1.0, pressRumbleDuration = 0.03
     var rumbleButtons: [String] = ["touchpad", "cross"]
     var speechLocale = "en-IN", speechOnDevice = false, speechTrailingSpace = true
     var combos: [String: String] = [:]
+    // Gyro aiming (action "gyro", held): rad/s -> px
+    var gyroSpeed = 1400.0, gyroDeadzone = 0.025, gyroSmoothing = 0.35
+    var gyroYawAxis = "y", gyroPitchAxis = "x", gyroRollAxis = "z", gyroInvertX = false, gyroInvertY = false
     var swipeDistance = 0.6
     // Feedback
     var rumbleOnPress = true, rumbleStrength = 0.35, notifyRumble = true
@@ -62,12 +65,15 @@ struct Config: Decodable {
         scrollSpeed = try v(.scrollSpeed, scrollSpeed)
         touchpadMode = try v(.touchpadMode, touchpadMode); trackpadSpeed = try v(.trackpadSpeed, trackpadSpeed); trackpadAccel = try v(.trackpadAccel, trackpadAccel)
         tapToClick = try v(.tapToClick, tapToClick); twoFingerScroll = try v(.twoFingerScroll, twoFingerScroll); swipeDistance = try v(.swipeDistance, swipeDistance)
-        trackpadSmoothing = try v(.trackpadSmoothing, trackpadSmoothing); trackpadSettle = try v(.trackpadSettle, trackpadSettle); trackpadInvertY = try v(.trackpadInvertY, trackpadInvertY)
+        trackpadSmoothing = try v(.trackpadSmoothing, trackpadSmoothing); trackpadSettle = try v(.trackpadSettle, trackpadSettle); trackpadInvertY = try v(.trackpadInvertY, trackpadInvertY); twoFingerSwipe = try v(.twoFingerSwipe, twoFingerSwipe)
         notifyStrength = try v(.notifyStrength, notifyStrength); pressRumbleDuration = try v(.pressRumbleDuration, pressRumbleDuration)
         rumbleButtons = try v(.rumbleButtons, rumbleButtons)
         speechLocale = try v(.speechLocale, speechLocale); speechOnDevice = try v(.speechOnDevice, speechOnDevice)
         speechTrailingSpace = try v(.speechTrailingSpace, speechTrailingSpace)
         combos = try v(.combos, combos)
+        gyroSpeed = try v(.gyroSpeed, gyroSpeed); gyroDeadzone = try v(.gyroDeadzone, gyroDeadzone); gyroSmoothing = try v(.gyroSmoothing, gyroSmoothing)
+        gyroYawAxis = try v(.gyroYawAxis, gyroYawAxis); gyroPitchAxis = try v(.gyroPitchAxis, gyroPitchAxis); gyroRollAxis = try v(.gyroRollAxis, gyroRollAxis)
+        gyroInvertX = try v(.gyroInvertX, gyroInvertX); gyroInvertY = try v(.gyroInvertY, gyroInvertY)
         rumbleOnPress = try v(.rumbleOnPress, rumbleOnPress); rumbleStrength = try v(.rumbleStrength, rumbleStrength); notifyRumble = try v(.notifyRumble, notifyRumble)
         terminalApps = try v(.terminalApps, terminalApps); `default` = try v(.default, `default`); terminal = try v(.terminal, terminal); apps = try v(.apps, apps)
         menu = try v(.menu, menu); terminalMenu = try v(.terminalMenu, terminalMenu)
@@ -75,8 +81,10 @@ struct Config: Decodable {
     enum K: String, CodingKey {
         case longPress, repeatDelay, repeatInterval, mouseMaxSpeed, mouseCurve, mouseBoost, mouseRamp, mouseSmoothing, deadzone, scrollSpeed
         case touchpadMode, trackpadSpeed, trackpadAccel, tapToClick, twoFingerScroll, swipeDistance, rumbleOnPress, rumbleStrength, notifyRumble
+        case twoFingerSwipe
         case trackpadSmoothing, trackpadSettle, trackpadInvertY, notifyStrength, pressRumbleDuration, rumbleButtons
         case speechLocale, speechOnDevice, speechTrailingSpace, combos
+        case gyroSpeed, gyroDeadzone, gyroSmoothing, gyroYawAxis, gyroPitchAxis, gyroRollAxis, gyroInvertX, gyroInvertY
         case terminalApps, `default`, terminal, apps, menu, terminalMenu
     }
 }
@@ -446,6 +454,10 @@ func begin(_ id: String, _ a: String) {
     guard enabled else { if a == "toggle" { run(a) }; return }
     if a == "hud" { showHUD(); return }
     if a == "listen" { startListening(); return }  // held: talk while pressed
+    if a == "gyro" || a.hasPrefix("gyro-tap:") {
+        // Instant: gyro on while held. "gyro-tap:<action>" also runs <action> if released quickly.
+        gyroActive = true; gyroV = .zero; gyroStart = Date(); light?.color = GCColor(red: 0.6, green: 0.2, blue: 1); return
+    }
     if a.hasPrefix("click:") {
         let right = a.hasSuffix("right"); if !right { leftMouseDown = true }; click(right, down: true); return
     }
@@ -467,6 +479,10 @@ func begin(_ id: String, _ a: String) {
 func end(_ id: String, _ a: String) {
     if a == "hud" { hideHUD() }
     if a == "listen" { stopListening() }
+    if a == "gyro" || a.hasPrefix("gyro-tap:") {
+        gyroActive = false; setLight()
+        if a.hasPrefix("gyro-tap:"), Date().timeIntervalSince(gyroStart) < 0.25 { run(String(a.dropFirst(9))) }
+    }
     heldTimers[id]?.invalidate(); heldTimers[id] = nil
     if let c = heldCombos.removeValue(forKey: id) { post(c, down: false) }
     if a.hasPrefix("click:") { let right = a.hasSuffix("right"); if !right { leftMouseDown = false }; click(right, down: false) }
@@ -510,7 +526,7 @@ let friendly: [String: String] = [
     "ctrl+c": "Interrupt (Ctrl+C)", "ctrl+r": "Search history", "seq:esc,esc": "Rewind (Esc Esc)", "ctrl+o": "Transcript",
     "toggle": "Pause PadPilot", "draw": "Draw on screen", "hud": "Show this panel", "menu": "Quick menu",
     "cmd+alt+a": "Claude Agents tab", "cmd+c": "Copy", "cmd+v": "Paste",
-    "repeat:backspace": "Backspace (hold to repeat)", "cmd+z": "Undo", "cmd+shift+z": "Redo", "ctrl+y": "Restore cleared text", "seq:cmd+a,backspace": "Clear all", "ctrl+l": "Clear prompt",
+    "gyro": "Gyro aim (tilt to move cursor)", "gyro-tap:ctrl+right": "Hold = gyro aim · tap = desktop right", "gyro-tap:cmd+shift+]": "Next tab · hold = gyro aim", "repeat:backspace": "Backspace (hold to repeat)", "cmd+z": "Undo", "cmd+shift+z": "Redo", "ctrl+y": "Restore cleared text", "seq:cmd+a,backspace": "Clear all", "ctrl+l": "Clear prompt",
     "cmd+ctrl+shift+4": "Screenshot area → clipboard", "cmd+ctrl+shift+3": "Screenshot screen → clipboard", "cmd+[": "Browser back", "cmd+t": "New tab", "cmd+l": "Address bar",
 ]
 
@@ -528,7 +544,7 @@ func showHUD() {
         lines.append((lab, [s, l.map { "hold: \($0)" }].compactMap { $0 }.joined(separator: "   ·   ")))
     }
     let pad = config.touchpadMode == "trackpad"
-        ? "1 finger = cursor · tap = click · 2 fingers = scroll" : "swipe = desktops / Mission Control"
+        ? "1 finger = cursor · tap = click · 2 fingers = scroll · 2-finger swipe ←→ = desktops" : "swipe = desktops / Mission Control"
     lines.append(("Touch", pad))
     lines.append(("Sticks", "left = cursor · right = scroll"))
     let sym = ["cross": "✕", "circle": "○", "square": "□", "triangle": "△", "l1": "L1", "r1": "R1", "l2": "L2", "r2": "R2",
@@ -769,6 +785,9 @@ var t1LastTime = Date.distantPast
 var t1Start = Date.distantPast
 var t1Moved = 0.0
 var touchSpeed = 0.0
+var twoMode: String?
+var twoAccX = 0.0, twoAccY = 0.0
+var twoFired = false
 var t2LastTime = Date.distantPast
 var swipeOrigin: CGPoint?
 var swipeFired = false
@@ -818,9 +837,25 @@ func touchMoved(_ x: Float, _ y: Float, pressed: Bool) {
         return
     }
     if now.timeIntervalSince(t2LastTime) < 0.12 {
+        // Two fingers: decide once per gesture whether it's a horizontal swipe (desktops) or a scroll.
+        if twoMode == nil {
+            twoAccX += dx; twoAccY += dy
+            if hypot(twoAccX, twoAccY) > 0.05 { twoMode = abs(twoAccX) > abs(twoAccY) * 1.3 ? "swipe" : "scroll" }
+            return
+        }
+        if twoMode == "swipe" {
+            twoAccX += dx
+            if !twoFired && abs(twoAccX) > config.twoFingerSwipe {
+                twoFired = true
+                let n = twoAccX > 0 ? "swipeRight" : "swipeLeft"
+                if let a = action(for: n) { log("\(n) -> \(a)"); run(a) }
+            }
+            return
+        }
         scroll(dx: dx * config.twoFingerScroll, dy: dy * config.twoFingerScroll)  // natural scrolling
         return
     }
+    twoMode = nil; twoAccX = 0; twoAccY = 0; twoFired = false
     // Acceleration from smoothed finger speed (pad units/sec), not single noisy deltas.
     touchSpeed += (hypot(dx, dy) / dt - touchSpeed) * 0.3
     let gain = config.trackpadSpeed * (1 + config.trackpadAccel * min(touchSpeed / 3.0, 1))
@@ -900,6 +935,9 @@ func attach(_ c: GCController) {
     guard let g = c.extendedGamepad else { return }
     pad = g; light = c.light; setLight()
     connectedController = c; updateStatusItem()
+    motion = c.motion
+    if let m = motion, m.sensorsRequireManualActivation { m.sensorsActive = true }
+    log("motion: \(motion != nil) rotationRate=\(motion?.hasRotationRate ?? false)")
     setupHaptics(c)
     log("attached: \(c.vendorName ?? "controller") haptics=\(hapticEngine != nil)")
     bind(g.buttonA, "cross"); bind(g.buttonB, "circle"); bind(g.buttonX, "square"); bind(g.buttonY, "triangle")
@@ -920,6 +958,37 @@ func attach(_ c: GCController) {
     }
 }
 
+// MARK: - Gyro aiming
+
+var motion: GCMotion?
+var gyroActive = false
+var gyroStart = Date.distantPast
+var gyroV = CGVector.zero
+var gyroLogAt = Date.distantPast
+
+func axis(_ r: GCRotationRate, _ name: String) -> Double {
+    switch name { case "x": return r.x; case "y": return r.y; case "-x": return -r.x; case "-y": return -r.y; case "-z": return -r.z; default: return r.z }
+}
+
+func gyroTick() {
+    guard gyroActive, enabled, let m = motion, m.hasRotationRate else { return }
+    let r = m.rotationRate
+    if debugTouch && Date().timeIntervalSince(gyroLogAt) > 0.15 {
+        gyroLogAt = Date(); log(String(format: "GYRO x=%.2f y=%.2f z=%.2f", r.x, r.y, r.z))
+    }
+    func dz(_ v: Double) -> Double { abs(v) < config.gyroDeadzone ? 0 : v - (v > 0 ? config.gyroDeadzone : -config.gyroDeadzone) }
+    // Turn right (yaw) -> cursor right; tilt top away (pitch) -> cursor up.
+    // Horizontal = yaw (turn) + roll (steering-wheel tip), so either natural motion moves sideways.
+    let roll = config.gyroRollAxis.isEmpty ? 0 : dz(axis(r, config.gyroRollAxis))
+    var tx = -(dz(axis(r, config.gyroYawAxis)) + roll) * config.gyroSpeed * tick
+    var ty = -dz(axis(r, config.gyroPitchAxis)) * config.gyroSpeed * tick
+    if config.gyroInvertX { tx = -tx }
+    if config.gyroInvertY { ty = -ty }
+    let a = 1 - min(max(config.gyroSmoothing, 0), 0.9)
+    gyroV.dx += (tx - gyroV.dx) * a; gyroV.dy += (ty - gyroV.dy) * a
+    if abs(gyroV.dx) > 0.02 || abs(gyroV.dy) > 0.02 { moveCursor(dx: gyroV.dx, dy: gyroV.dy) }
+}
+
 // Left stick = cursor (radial deadzone, curve, smoothing, full-tilt boost); right stick = scroll. 120 Hz.
 var smoothV = CGVector.zero
 var fullTilt = 0.0
@@ -927,6 +996,7 @@ let tick = 1.0 / 120.0
 
 Timer.scheduledTimer(withTimeInterval: tick, repeats: true) { _ in
     guard enabled, let g = pad else { return }
+    gyroTick()
     let x = Double(g.leftThumbstick.xAxis.value), y = Double(g.leftThumbstick.yAxis.value)
     let mag = min(hypot(x, y), 1)
     var target = CGVector.zero

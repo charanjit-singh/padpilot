@@ -59,13 +59,13 @@ Tap **Create** for an on-screen menu: approve, reject, interrupt, `/clear`, `/co
 <td valign="top">
 
 ### 🖱️ A real trackpad
-One finger moves the cursor, **tap to click**, two fingers scroll. Plus a smooth stick cursor with a precision curve and full-tilt boost.
+One finger moves the cursor, **tap to click**, two fingers scroll. Triggers are left and right click. Plus a smooth stick cursor and **gyro aiming** (hold R1 and tilt).
 
 </td>
 <td valign="top">
 
 ### 🪟 Spaces, tabs and windows
-L2 / R2 swipe between desktops, L1 / R1 flip tabs in Zed, Chrome and Terminal, Options cycles windows. Your Mac, from the couch.
+Two-finger swipes on the touchpad switch desktops, L1 / R1 flip tabs in Zed, Chrome and Terminal, Options cycles windows. Your Mac, from the couch.
 
 </td>
 <td valign="top">
@@ -111,14 +111,14 @@ Then:
 | **D-pad** | Arrow keys (auto-repeat while held) |
 | **✕ / ○** | Enter / Esc |
 | **□ / △** | Tab / Shift+Tab |
-| **L1 / R1** | Previous / next tab |
-| **L2 / R2** | Desktop left / right |
+| **L1 / R1** | Previous / next tab · *hold R1:* gyro aim |
+| **L2 / R2** | Left click (hold to drag) / right click |
 | **Options** | Next window of the same app · *hold:* switch app |
 | **Create** | Quick menu · *hold:* controls cheat sheet |
 | **PS** | Switch app · *hold:* pause PadPilot |
-| **Touchpad** | Trackpad · tap to click · two fingers scroll · *press and hold:* speak and type |
-| **Left stick** | Cursor · **L3** click (hold and move to drag) |
-| **Right stick** | Scroll · **R3** right click |
+| **Touchpad** | Trackpad · tap to click · two fingers scroll · **two-finger swipe ← → switches desktop** · *press and hold:* speak and type |
+| **Left stick** | Cursor |
+| **Right stick** | Scroll |
 
 ### In Claude Code (Terminal / Zed)
 
