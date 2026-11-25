@@ -17,6 +17,7 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
 <key>LSUIElement</key><true/>
 <key>GCSupportsControllerUserInteraction</key><true/>
 <key>NSMicrophoneUsageDescription</key><string>PadPilot listens while you hold the touchpad and types what you say.</string>
+<key>NSAppleEventsUsageDescription</key><string>PadPilot tints the Terminal tab of a Claude session that needs you and jumps to it.</string>
 <key>NSSpeechRecognitionUsageDescription</key><string>PadPilot turns your speech into text in the focused field.</string>
 </dict></plist>
 EOF

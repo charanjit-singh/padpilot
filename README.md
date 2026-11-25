@@ -39,7 +39,7 @@ every slash command you actually use. Then it keeps going and runs the rest of y
 <td width="33%" valign="top">
 
 ### 🔔 Agents tap you on the shoulder
-The light bar **pulses red and rumbles** when Claude asks for permission, and **flashes green** when it finishes. Walk away, come back when it buzzes.
+The light bar **pulses red and rumbles** when Claude asks for permission, and **flashes green** when it finishes. In Terminal.app the **tab turns red for the session on screen that needs you**, and **PS jumps straight to it**.
 
 </td>
 <td width="33%" valign="top">
@@ -115,7 +115,7 @@ Then:
 | **L2 / R2** | Left click (hold to drag) / right click |
 | **Options** | Next window of the same app · *hold:* switch app |
 | **Create** | Quick menu · *hold:* controls cheat sheet |
-| **PS** | Switch app · *hold:* pause PadPilot |
+| **PS** | Jump to the Claude session waiting on you (else switch app) · *hold:* pause PadPilot |
 | **Touchpad** | Trackpad · tap to click · two fingers scroll · **two-finger swipe ← → switches desktop** · *press and hold:* speak and type |
 | **Left stick** | Cursor |
 | **Right stick** | Scroll |
