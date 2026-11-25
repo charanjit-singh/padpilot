@@ -79,6 +79,8 @@ Hold L1 for **copy, paste, undo, clear all, backspace** and **screenshot to clip
 
 Hold **Create** any time and an on-screen cheat sheet shows what every button does **in the app you are in right now**.
 
+A **menu bar icon** shows the controller battery (⚡ while charging) with pause, config and log one click away, and you get a buzz when the battery drops to 15%.
+
 ---
 
 ## 🚀 Install

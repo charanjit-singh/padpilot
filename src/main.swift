@@ -423,7 +423,7 @@ var heldCombos: [String: Combo] = [:]
 
 /// One-shot actions: "cmd+shift+]" | "seq:esc,esc" | "text:hello" | "dictation" | "draw" | "menu" | "toggle" | "none"
 func run(_ a: String) {
-    if a == "toggle" { enabled.toggle(); setLight(); log("enabled=\(enabled)"); return }
+    if a == "toggle" { enabled.toggle(); setLight(); updateStatusItem(); log("enabled=\(enabled)"); return }
     guard enabled, a != "none", !a.isEmpty else { return }
     switch a {
     case "dictation": dictation(); return
@@ -541,7 +541,7 @@ func showHUD() {
     let rowH: CGFloat = 26, w: CGFloat = 600, m: CGFloat = 22
     let h = CGFloat(lines.count) * rowH + m * 2 + 40
     let (p, bg) = makePanel(width: w, height: h)
-    let title = label("Controller · \(app)", size: 17, bold: true)
+    let title = label("Controller · \(app)   🔋 \(batteryText())", size: 17, bold: true)
     title.frame = NSRect(x: m, y: h - m - 24, width: w - m * 2, height: 24); bg.addSubview(title)
     for (i, (lab, text)) in lines.enumerated() {
         let y = h - m - 44 - CGFloat(i + 1) * rowH + 6
@@ -828,6 +828,67 @@ func touchMoved(_ x: Float, _ y: Float, pressed: Bool) {
     moveCursor(dx: dx * gain, dy: ySign * dy * gain)
 }
 
+// MARK: - Menu bar: controller battery + quick controls
+
+var statusItem: NSStatusItem?
+var connectedController: GCController?
+var lowBatteryWarned = false
+
+func batteryText() -> String {
+    guard let b = connectedController?.battery else { return connectedController == nil ? "off" : "?" }
+    let pct = Int((b.batteryLevel * 100).rounded())
+    switch b.batteryState {
+    case .charging: return "⚡\(pct)%"
+    case .full: return "⚡100%"
+    default: return "\(pct)%"
+    }
+}
+
+final class MenuTarget: NSObject {
+    @objc func togglePause() { run("toggle"); updateStatusItem() }
+    @objc func openConfig() { NSWorkspace.shared.open(configURL) }
+    @objc func openLog() { NSWorkspace.shared.open(logURL) }
+    @objc func showHUD() { showHUDTimed() }
+}
+let menuTarget = MenuTarget()
+
+func showHUDTimed() { showHUD(); DispatchQueue.main.asyncAfter(deadline: .now() + 4) { hideHUD() } }
+
+func updateStatusItem() {
+    if statusItem == nil {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    }
+    guard let item = statusItem, let button = item.button else { return }
+    let level = connectedController?.battery?.batteryLevel ?? 1
+    let charging = connectedController?.battery?.batteryState == .charging
+    let low = connectedController != nil && level <= 0.2 && !charging
+    let symbol = connectedController == nil ? "gamecontroller" : (low ? "battery.25" : "gamecontroller.fill")
+    button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "PadPilot")
+    button.image?.isTemplate = true
+    button.imagePosition = .imageLeft
+    button.title = connectedController == nil ? "" : " " + batteryText()
+    button.appearsDisabled = !enabled
+
+    let menu = NSMenu()
+    let state = connectedController == nil ? "No controller" : (enabled ? "Active" : "Paused")
+    menu.addItem(NSMenuItem(title: "PadPilot: \(state)", action: nil, keyEquivalent: ""))
+    if connectedController != nil { menu.addItem(NSMenuItem(title: "Battery: \(batteryText())", action: nil, keyEquivalent: "")) }
+    menu.addItem(.separator())
+    for (title, sel) in [(enabled ? "Pause" : "Resume", #selector(MenuTarget.togglePause)),
+                         ("Show controls", #selector(MenuTarget.showHUD)),
+                         ("Edit config…", #selector(MenuTarget.openConfig)),
+                         ("Open log", #selector(MenuTarget.openLog))] {
+        let mi = NSMenuItem(title: title, action: sel, keyEquivalent: ""); mi.target = menuTarget; menu.addItem(mi)
+    }
+    item.menu = menu
+
+    // One warning buzz + log when the battery drops to 15% (re-arms after charging).
+    if connectedController != nil {
+        if level <= 0.15 && !charging && !lowBatteryWarned { lowBatteryWarned = true; log("battery low: \(batteryText())"); rumble(1.0, 0.12, count: 3, gap: 0.1) }
+        if level > 0.25 || charging { lowBatteryWarned = false }
+    }
+}
+
 // MARK: - Controller wiring
 
 var pad: GCExtendedGamepad?
@@ -838,6 +899,7 @@ func bind(_ b: GCControllerButtonInput?, _ name: String) { b?.pressedChangedHand
 func attach(_ c: GCController) {
     guard let g = c.extendedGamepad else { return }
     pad = g; light = c.light; setLight()
+    connectedController = c; updateStatusItem()
     setupHaptics(c)
     log("attached: \(c.vendorName ?? "controller") haptics=\(hapticEngine != nil)")
     bind(g.buttonA, "cross"); bind(g.buttonB, "circle"); bind(g.buttonX, "square"); bind(g.buttonY, "triangle")
@@ -891,6 +953,7 @@ Timer.scheduledTimer(withTimeInterval: tick, repeats: true) { _ in
 }
 
 Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in loadConfig() }
+Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in updateStatusItem() }
 
 // MARK: - Boot
 
@@ -921,7 +984,7 @@ NotificationCenter.default.addObserver(forName: .GCControllerDidConnect, object:
     if let c = n.object as? GCController { attach(c) }
 }
 NotificationCenter.default.addObserver(forName: .GCControllerDidDisconnect, object: nil, queue: .main) { _ in
-    log("controller disconnected"); pad = nil; hapticEngine = nil
+    log("controller disconnected"); pad = nil; hapticEngine = nil; connectedController = nil; updateStatusItem()
     if let c = GCController.controllers().first { attach(c) }
 }
 GCController.startWirelessControllerDiscovery {}
