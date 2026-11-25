@@ -10,14 +10,7 @@ import GameController
 
 let eventName = Notification.Name("local.padpilot.event")
 if let i = CommandLine.arguments.firstIndex(of: "--notify") {
-    var kind = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : "attention"
-    // --stdin: a Claude Code hook pipes its JSON; tag the event with the session ("kind|session_id|cwd").
-    if CommandLine.arguments.contains("--stdin") {
-        let data = FileHandle.standardInput.readDataToEndOfFile()
-        if let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let sid = j["session_id"] as? String {
-            kind += "|\(sid)|\(j["cwd"] as? String ?? "")"
-        }
-    }
+    let kind = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : "attention"
     DistributedNotificationCenter.default().postNotificationName(eventName, object: kind, userInfo: nil, deliverImmediately: true)
     exit(0)
 }
@@ -52,8 +45,6 @@ struct Config: Decodable {
     var rumbleButtons: [String] = ["touchpad", "cross"]
     var speechLocale = "en-IN", speechOnDevice = false, speechTrailingSpace = true
     var combos: [String: String] = [:]
-    var terminalTint = true, tintWaiting = "{16000, 2600, 2600}", tintDone = "{2600, 12000, 4500}"
-    var projectTint = true, projectTintStrength = 0.2, projectColors: [String: String] = [:]
     // Gyro aiming (action "gyro", held): rad/s -> px
     var gyroSpeed = 1400.0, gyroDeadzone = 0.025, gyroSmoothing = 0.35
     var gyroYawAxis = "y", gyroPitchAxis = "x", gyroRollAxis = "z", gyroInvertX = false, gyroInvertY = false
@@ -80,9 +71,6 @@ struct Config: Decodable {
         speechLocale = try v(.speechLocale, speechLocale); speechOnDevice = try v(.speechOnDevice, speechOnDevice)
         speechTrailingSpace = try v(.speechTrailingSpace, speechTrailingSpace)
         combos = try v(.combos, combos)
-        terminalTint = try v(.terminalTint, terminalTint); tintWaiting = try v(.tintWaiting, tintWaiting); tintDone = try v(.tintDone, tintDone)
-        projectTint = try v(.projectTint, projectTint); projectTintStrength = try v(.projectTintStrength, projectTintStrength)
-        projectColors = try v(.projectColors, projectColors)
         gyroSpeed = try v(.gyroSpeed, gyroSpeed); gyroDeadzone = try v(.gyroDeadzone, gyroDeadzone); gyroSmoothing = try v(.gyroSmoothing, gyroSmoothing)
         gyroYawAxis = try v(.gyroYawAxis, gyroYawAxis); gyroPitchAxis = try v(.gyroPitchAxis, gyroPitchAxis); gyroRollAxis = try v(.gyroRollAxis, gyroRollAxis)
         gyroInvertX = try v(.gyroInvertX, gyroInvertX); gyroInvertY = try v(.gyroInvertY, gyroInvertY)
@@ -95,7 +83,7 @@ struct Config: Decodable {
         case touchpadMode, trackpadSpeed, trackpadAccel, tapToClick, twoFingerScroll, swipeDistance, rumbleOnPress, rumbleStrength, notifyRumble
         case twoFingerSwipe
         case trackpadSmoothing, trackpadSettle, trackpadInvertY, notifyStrength, pressRumbleDuration, rumbleButtons
-        case speechLocale, speechOnDevice, speechTrailingSpace, combos, terminalTint, tintWaiting, tintDone, projectTint, projectTintStrength, projectColors
+        case speechLocale, speechOnDevice, speechTrailingSpace, combos
         case gyroSpeed, gyroDeadzone, gyroSmoothing, gyroYawAxis, gyroPitchAxis, gyroRollAxis, gyroInvertX, gyroInvertY
         case terminalApps, `default`, terminal, apps, menu, terminalMenu
     }
@@ -309,14 +297,12 @@ func setupHaptics(_ c: GCController) {
 var attentionTimer: Timer?
 var attentionOn = false
 
-func startAttention(_ c: (Double, Double, Double)? = nil) {
+func startAttention() {
     attentionTimer?.invalidate()
     var phase = false
-    let (r, g, b) = c ?? (1, 0.1, 0.05)   // project colour when known, else red
     attentionTimer = Timer.scheduledTimer(withTimeInterval: 0.45, repeats: true) { _ in
         phase.toggle()
-        light?.color = phase ? GCColor(red: Float(r), green: Float(g), blue: Float(b))
-                             : GCColor(red: Float(r * 0.12), green: Float(g * 0.12), blue: Float(b * 0.12))
+        light?.color = phase ? GCColor(red: 1, green: 0.1, blue: 0.05) : GCColor(red: 0.15, green: 0.02, blue: 0.0)
     }
     attentionOn = true
     if config.notifyRumble { rumble(config.notifyStrength, 0.12, count: 2, gap: 0.1) }
@@ -438,151 +424,6 @@ func showListenPanel() {
     p.orderFrontRegardless(); listenPanel = p; listenLabel = l
 }
 
-// MARK: - Per-session Terminal.app tab colour + jump
-// The status line reports which session each tab is showing ("view|sid|cwd|tty"); hooks report session state.
-// The tab background follows whichever session is on screen in it.
-
-struct Sess { var cwd: String; var state: String; var changed: Date }
-var sessions: [String: Sess] = [:]
-var ttyShows: [String: String] = [:]          // tty -> session on screen
-var sessionTty: [String: String] = [:]        // session -> last tty it was seen in
-var appliedTint: [String: String] = [:]       // tty -> tint currently applied
-var originalBG: [String: String] = [:]        // tty -> "{r, g, b}" before we tinted it
-
-func appleScript(_ src: String) -> String? {
-    var err: NSDictionary?
-    let out = NSAppleScript(source: src)?.executeAndReturnError(&err)
-    if let err { log("applescript error: \(err["NSAppleScriptErrorMessage"] ?? err)"); return nil }
-    return out?.stringValue ?? ""
-}
-
-func terminalTabScript(_ tty: String, _ body: String) -> String {
-    """
-    tell application "Terminal"
-      repeat with w in windows
-        repeat with t in tabs of w
-          if tty of t is "/dev/\(tty)" then
-            \(body)
-            return "ok"
-          end if
-        end repeat
-      end repeat
-    end tell
-    return "missing"
-    """
-}
-
-func applyTint(_ tty: String) {
-    guard config.terminalTint, let sid = ttyShows[tty] else { return }
-    let st = sessions[sid]?.state ?? "working"
-    let cwd = sessions[sid]?.cwd ?? ""
-    let want = st == "waiting" ? "waiting" : (st == "done" ? "done" : (config.projectTint && !cwd.isEmpty ? "project|" + cwd : "normal"))
-    if appliedTint[tty] == want { return }
-    if want != "normal" && originalBG[tty] == nil {  // remember the user's background before the first tint
-        if let c = appleScript(terminalTabScript(tty, "set c to background color of t\n return ((item 1 of c) as string) & \",\" & ((item 2 of c) as string) & \",\" & ((item 3 of c) as string)")), c != "missing", c.contains(",") {
-            originalBG[tty] = "{\(c)}"
-        }
-    }
-    let color: String
-    switch want {
-    case "waiting": color = config.tintWaiting
-    case "done": color = config.tintDone
-    case _ where want.hasPrefix("project|"): color = tabColor(projectColor(cwd), strength: config.projectTintStrength)
-    default: guard let o = originalBG[tty] else { appliedTint[tty] = want; return }; color = o
-    }
-    if appleScript(terminalTabScript(tty, "set background color of t to \(color)")) != nil { appliedTint[tty] = want }
-}
-
-/// Project colour for a folder: config override -> nearest .vscode/settings.json -> stable hash of the folder name.
-var projectColorCache: [String: (Double, Double, Double)] = [:]
-
-func hexRGB(_ h: String) -> (Double, Double, Double)? {
-    let t = h.trimmingCharacters(in: CharacterSet(charactersIn: "# "))
-    guard t.count >= 6, let v = UInt32(t.prefix(6), radix: 16) else { return nil }
-    return (Double((v >> 16) & 255) / 255, Double((v >> 8) & 255) / 255, Double(v & 255) / 255)
-}
-
-func projectColor(_ cwd: String) -> (Double, Double, Double) {
-    if let c = projectColorCache[cwd] { return c }
-    var result: (Double, Double, Double)?
-    for (key, hex) in config.projectColors where cwd == key || cwd.hasPrefix(key + "/") || (cwd as NSString).lastPathComponent == key {
-        result = hexRGB(hex)
-    }
-    var dir = cwd
-    while result == nil && !dir.isEmpty && dir != "/" && dir != NSHomeDirectory() {
-        let f = dir + "/.vscode/settings.json"
-        if let text = try? String(contentsOfFile: f, encoding: .utf8) {
-            for key in ["titleBar.activeBackground", "activityBar.background", "statusBar.background"] {
-                if let r = text.range(of: "\"\(key)\"\\s*:\\s*\"#[0-9a-fA-F]{6}", options: .regularExpression),
-                   let c = hexRGB(String(text[r].suffix(7))) { result = c; break }
-            }
-        }
-        dir = (dir as NSString).deletingLastPathComponent
-    }
-    if result == nil {
-        // Stable colour from the folder name (git root name if inside one).
-        let name = (cwd as NSString).lastPathComponent
-        var hash: UInt32 = 5381; for b in name.utf8 { hash = hash &* 33 &+ UInt32(b) }
-        // Hues that can't be mistaken for "waiting" (red) or "done" (green): ambers/yellows and cyan..magenta.
-        let allowed = Array(40...75) + Array(170...310)
-        let hue = allowed[Int(hash % UInt32(allowed.count))]
-        let c = NSColor(hue: CGFloat(hue) / 360, saturation: 0.6, brightness: 0.85, alpha: 1).usingColorSpace(.sRGB)!
-        result = (Double(c.redComponent), Double(c.greenComponent), Double(c.blueComponent))
-    }
-    projectColorCache[cwd] = result
-    return result!
-}
-
-func tabColor(_ c: (Double, Double, Double), strength: Double) -> String {
-    func v(_ x: Double) -> Int { Int(min(max(x * strength, 0), 1) * 65535) }
-    return "{\(v(c.0)), \(v(c.1)), \(v(c.2))}"
-}
-
-func refreshTints(for sid: String) { for (tty, s) in ttyShows where s == sid { applyTint(tty) } }
-
-func sessionViewed(sid: String, cwd: String, tty: String) {
-    let t = tty.replacingOccurrences(of: "/dev/", with: "")
-    guard !t.isEmpty, t != "??" else { return }
-    if sessions[sid] == nil { sessions[sid] = Sess(cwd: cwd, state: "working", changed: Date()) }
-    sessionTty[sid] = t
-    if ttyShows[t] != sid { ttyShows[t] = sid; log("tab \(t) shows \((cwd as NSString).lastPathComponent) [\(sid.prefix(8))]") }
-    applyTint(t)
-}
-
-/// Session exited: put every tab that was showing it back to the user's own background.
-func sessionEnded(_ sid: String) {
-    for (tty, s) in ttyShows where s == sid {
-        if let o = originalBG[tty] { _ = appleScript(terminalTabScript(tty, "set background color of t to \(o)")) }
-        ttyShows[tty] = nil; appliedTint[tty] = nil
-    }
-    sessions[sid] = nil; sessionTty[sid] = nil
-    log("session ended [\(sid.prefix(8))]")
-}
-
-func sessionState(sid: String, cwd: String, state: String) {
-    var s = sessions[sid] ?? Sess(cwd: cwd, state: state, changed: Date())
-    s.state = state; s.changed = Date(); if !cwd.isEmpty { s.cwd = cwd }
-    sessions[sid] = s
-    refreshTints(for: sid)
-    if state == "done" {
-        // The green "finished" tint fades back to normal after a few seconds.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-            if sessions[sid]?.state == "done" { sessions[sid]?.state = "idle"; refreshTints(for: sid) }
-        }
-    }
-}
-
-/// Bring the Terminal tab showing the most recently waiting session to the front. Returns false if none.
-func jumpToWaiting() -> Bool {
-    let waiting = sessions.filter { $0.value.state == "waiting" }.sorted { $0.value.changed > $1.value.changed }
-    for (sid, s) in waiting {
-        guard let tty = sessionTty[sid] else { continue }
-        let r = appleScript(terminalTabScript(tty, "set selected of t to true\n set index of w to 1\n activate"))
-        if r == "ok" { log("jump -> \((s.cwd as NSString).lastPathComponent) (\(tty))"); clearAttention(); return true }
-    }
-    return false
-}
-
 // MARK: - Action runner
 
 var heldTimers: [String: Timer] = [:]
@@ -597,10 +438,8 @@ func run(_ a: String) {
     case "listen": listening || listenWanted ? stopListening() : startListening(); return  // toggle (menu)
     case "draw": toggleDraw(); return
     case "menu": openMenu(); return
-    case "jump": _ = jumpToWaiting(); return
     default: break
     }
-    if a.hasPrefix("jump-or:") { if !jumpToWaiting() { run(String(a.dropFirst(8))) }; return }
     if a.hasPrefix("seq:") {
         let steps = a.dropFirst(4).split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         for (i, s) in steps.enumerated() { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05 * Double(i)) { run(s) } }
@@ -687,7 +526,7 @@ let friendly: [String: String] = [
     "ctrl+c": "Interrupt (Ctrl+C)", "ctrl+r": "Search history", "seq:esc,esc": "Rewind (Esc Esc)", "ctrl+o": "Transcript",
     "toggle": "Pause PadPilot", "draw": "Draw on screen", "hud": "Show this panel", "menu": "Quick menu",
     "cmd+alt+a": "Claude Agents tab", "cmd+c": "Copy", "cmd+v": "Paste",
-    "gyro": "Gyro aim (tilt to move cursor)", "jump-or:cmd+tab": "Jump to waiting Claude session (else switch app)", "gyro-tap:ctrl+right": "Hold = gyro aim · tap = desktop right", "gyro-tap:cmd+shift+]": "Next tab · hold = gyro aim", "repeat:backspace": "Backspace (hold to repeat)", "cmd+z": "Undo", "cmd+shift+z": "Redo", "ctrl+y": "Restore cleared text", "seq:cmd+a,backspace": "Clear all", "ctrl+l": "Clear prompt",
+    "gyro": "Gyro aim (tilt to move cursor)", "gyro-tap:ctrl+right": "Hold = gyro aim · tap = desktop right", "gyro-tap:cmd+shift+]": "Next tab · hold = gyro aim", "repeat:backspace": "Backspace (hold to repeat)", "cmd+z": "Undo", "cmd+shift+z": "Redo", "ctrl+y": "Restore cleared text", "seq:cmd+a,backspace": "Clear all", "ctrl+l": "Clear prompt",
     "cmd+ctrl+shift+4": "Screenshot area → clipboard", "cmd+ctrl+shift+3": "Screenshot screen → clipboard", "cmd+[": "Browser back", "cmd+t": "New tab", "cmd+l": "Address bar",
 ]
 
@@ -1197,22 +1036,9 @@ let trusted = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnr
 log("padpilot start, accessibility trusted=\(trusted)")
 
 DistributedNotificationCenter.default().addObserver(forName: eventName, object: nil, queue: .main) { n in
-    let raw = n.object as? String ?? "attention"
-    let parts = raw.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
-    let kind = parts[0]
-    if kind == "view" { if parts.count >= 4 { sessionViewed(sid: parts[1], cwd: parts[2], tty: parts[3]) }; return }
-    log("notify: \(raw)")
-    if kind == "end" { if parts.count >= 2 { sessionEnded(parts[1]) }; return }
-    if kind == "forget" {  // reset every tab PadPilot tinted (test / recovery hook)
-        for (sid, _) in sessions { sessionEnded(sid) }
-        for (tty, o) in originalBG { _ = appleScript(terminalTabScript(tty, "set background color of t to \(o)")) }
-        ttyShows = [:]; appliedTint = [:]; return
-    }
-    if parts.count >= 2, ["attention", "done", "working"].contains(kind) {
-        sessionState(sid: parts[1], cwd: parts.count > 2 ? parts[2] : "", state: kind == "attention" ? "waiting" : kind)
-    }
+    let kind = n.object as? String ?? "attention"
+    log("notify: \(kind)")
     switch kind {
-    case "working": break
     case "done": flashDone()
     case "menu": openMenu()           // test hooks: open panels without the controller
     case "hud": showHUD()
@@ -1221,8 +1047,7 @@ DistributedNotificationCenter.default().addObserver(forName: eventName, object: 
     case "listen": run("listen")
     case let k where k.hasPrefix("run:"): run(String(k.dropFirst(4)))  // test hook
     case "buzz": rumble(config.rumbleStrength, config.pressRumbleDuration)
-    default:
-        if parts.count > 2, !parts[2].isEmpty { startAttention(projectColor(parts[2])) } else { startAttention() }
+    default: startAttention()
     }
 }
 
