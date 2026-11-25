@@ -446,6 +446,11 @@ func run(_ a: String) {
         return
     }
     if a.hasPrefix("text:") { typeText(String(a.dropFirst(5))); return }
+    if a.hasPrefix("say:") {  // canned reply: type it, then Enter
+        typeText(String(a.dropFirst(4)))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { tap(parseCombo("enter")!) }
+        return
+    }
     if let c = parseCombo(a) { tap(c) }
 }
 
@@ -530,7 +535,7 @@ let friendly: [String: String] = [
     "cmd+ctrl+shift+4": "Screenshot area → clipboard", "cmd+ctrl+shift+3": "Screenshot screen → clipboard", "cmd+[": "Browser back", "cmd+t": "New tab", "cmd+l": "Address bar",
 ]
 
-func describe(_ a: String?) -> String? { guard let a, a != "none" else { return nil }; return friendly[a] ?? a }
+func describe(_ a: String?) -> String? { guard let a, a != "none" else { return nil }; if a.hasPrefix("say:") { return "\u{201C}\(a.dropFirst(4))\u{201D}" }; return friendly[a] ?? a }
 
 var hudWindow: NSPanel?
 
@@ -548,9 +553,10 @@ func showHUD() {
     lines.append(("Touch", pad))
     lines.append(("Sticks", "left = cursor · right = scroll"))
     let sym = ["cross": "✕", "circle": "○", "square": "□", "triangle": "△", "l1": "L1", "r1": "R1", "l2": "L2", "r2": "R2",
-               "up": "↑", "down": "↓", "left": "←", "right": "→"]
-    for k in config.combos.keys.sorted() {
-        guard let a = comboAction(k) else { continue }
+               "up": "↑", "down": "↓", "left": "←", "right": "→", "options": "Options", "create": "Create"]
+    let comboKeys = Set(config.combos.keys).union(([config.default, config.terminal] + Array(config.apps.values)).flatMap { $0.keys.filter { $0.contains("+") } })
+    for k in comboKeys.sorted() {
+        guard let a = comboAction(k), a != "none" else { continue }
         let pretty = k.split(separator: "+").map { sym[String($0)] ?? String($0) }.joined(separator: "+")
         lines.append((pretty, describe(a) ?? a))
     }
@@ -702,6 +708,7 @@ func drawPress(_ name: String, _ pressed: Bool) -> Bool {
 var heldModifiers: Set<String> = []
 var comboUsed: Set<String> = []
 var suppressedRelease: Set<String> = []
+var modifierDownAt: [String: Date] = [:]
 
 /// Combo action for the frontmost app: apps/terminal/default maps may override "l1+square", else `combos`.
 func comboAction(_ key: String) -> String? { action(for: key) ?? config.combos[key] }
@@ -732,10 +739,14 @@ func comboPress(_ name: String, _ pressed: Bool) -> Bool {
         return true
     }
     guard isModifier(name) else { return false }
-    if pressed { heldModifiers.insert(name); comboUsed.remove(name); return true }
-    // Modifier released: if no combo happened, it acts as a normal tap.
+    if pressed { heldModifiers.insert(name); comboUsed.remove(name); modifierDownAt[name] = Date(); return true }
+    // Modifier released: if no combo happened, it acts as a normal tap (or its .long action if held).
     heldModifiers.remove(name)
-    if comboUsed.remove(name) == nil, let a = action(for: name) { log("\(name) -> \(a)"); begin(name, a); end(name, a) }
+    let held = Date().timeIntervalSince(modifierDownAt[name] ?? Date())
+    if comboUsed.remove(name) == nil {
+        let longA = action(for: name + ".long")
+        if let a = (held >= config.longPress ? longA : nil) ?? action(for: name) { log("\(name) -> \(a)"); begin(name, a); end(name, a) }
+    }
     return true
 }
 

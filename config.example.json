@@ -82,7 +82,15 @@
     "cross.long": "ctrl+o",
     "l1+down": "seq:ctrl+e,ctrl+u,ctrl+l",
     "l1+up": "ctrl+y",
-    "l1+right": "none"
+    "l1+right": "none",
+
+    // Canned replies: hold Options + button types the reply and presses Enter.
+    "options+up": "say:continue",
+    "options+right": "say:yes, go with your recommendation",
+    "options+left": "say:run the tests and fix any failures",
+    "options+down": "say:stop and summarise what you've done so far",
+    "options+cross": "say:yes",
+    "options+circle": "say:no"
   },
 
   "apps": {

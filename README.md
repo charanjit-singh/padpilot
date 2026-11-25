@@ -145,6 +145,18 @@ Then:
 
 L1 on its own still flips to the previous tab when released.
 
+### Canned replies: hold Options, then press (Claude Code)
+
+| Combo | Sends (then Enter) |
+|---|---|
+| **Options + ↑** | continue |
+| **Options + →** | yes, go with your recommendation |
+| **Options + ←** | run the tests and fix any failures |
+| **Options + ↓** | stop and summarise what you've done so far |
+| **Options + ✕ / ○** | yes / no |
+
+Edit the texts in the config (`"options+up": "say:continue"`). Options alone still cycles windows.
+
 ### Light bar
 
 | Light | Meaning |
