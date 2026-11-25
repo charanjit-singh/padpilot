@@ -788,12 +788,13 @@ var touchSpeed = 0.0
 var twoMode: String?
 var twoAccX = 0.0, twoAccY = 0.0
 var twoFired = false
+var lastSwipeAt = Date.distantPast
 var t2LastTime = Date.distantPast
 var swipeOrigin: CGPoint?
 var swipeFired = false
 
 func touchEnded() {
-    defer { t1Last = nil; swipeOrigin = nil }
+    defer { t1Last = nil; swipeOrigin = nil; twoMode = nil; twoAccX = 0; twoAccY = 0; twoFired = false }
     guard t1Last != nil, config.touchpadMode == "trackpad", config.tapToClick, enabled, !drawMode else { return }
     let dur = t1LastTime.timeIntervalSince(t1Start)
     if dur < 0.22 && t1Moved < 0.05 && !touchPressedDuringTouch && Date().timeIntervalSince(t2LastTime) > 0.3 {
@@ -814,6 +815,7 @@ func touchMoved(_ x: Float, _ y: Float, pressed: Bool) {
     guard let last = t1Last, now.timeIntervalSince(t1LastTime) < 0.12 else {
         // New touch: anchor without moving the cursor (prevents jumps).
         t1Last = raw; t1LastTime = now; t1Start = now; t1Moved = 0; touchSpeed = 0
+        twoMode = nil; twoAccX = 0; twoAccY = 0; twoFired = false
         swipeOrigin = raw; swipeFired = false; touchPressedDuringTouch = pressed
         return
     }
@@ -840,13 +842,13 @@ func touchMoved(_ x: Float, _ y: Float, pressed: Bool) {
         // Two fingers: decide once per gesture whether it's a horizontal swipe (desktops) or a scroll.
         if twoMode == nil {
             twoAccX += dx; twoAccY += dy
-            if hypot(twoAccX, twoAccY) > 0.05 { twoMode = abs(twoAccX) > abs(twoAccY) * 1.3 ? "swipe" : "scroll" }
+            if hypot(twoAccX, twoAccY) > 0.08 { twoMode = abs(twoAccX) > abs(twoAccY) * 1.2 ? "swipe" : "scroll"; log("two-finger: \(twoMode!)") }
             return
         }
         if twoMode == "swipe" {
             twoAccX += dx
-            if !twoFired && abs(twoAccX) > config.twoFingerSwipe {
-                twoFired = true
+            if !twoFired && abs(twoAccX) > config.twoFingerSwipe && Date().timeIntervalSince(lastSwipeAt) > 0.5 {
+                twoFired = true; lastSwipeAt = Date()
                 let n = twoAccX > 0 ? "swipeRight" : "swipeLeft"
                 if let a = action(for: n) { log("\(n) -> \(a)"); run(a) }
             }
