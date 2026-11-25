@@ -53,6 +53,7 @@ struct Config: Decodable {
     var speechLocale = "en-IN", speechOnDevice = false, speechTrailingSpace = true
     var combos: [String: String] = [:]
     var terminalTint = true, tintWaiting = "{16000, 2600, 2600}", tintDone = "{2600, 12000, 4500}"
+    var projectTint = true, projectTintStrength = 0.2, projectColors: [String: String] = [:]
     // Gyro aiming (action "gyro", held): rad/s -> px
     var gyroSpeed = 1400.0, gyroDeadzone = 0.025, gyroSmoothing = 0.35
     var gyroYawAxis = "y", gyroPitchAxis = "x", gyroRollAxis = "z", gyroInvertX = false, gyroInvertY = false
@@ -80,6 +81,8 @@ struct Config: Decodable {
         speechTrailingSpace = try v(.speechTrailingSpace, speechTrailingSpace)
         combos = try v(.combos, combos)
         terminalTint = try v(.terminalTint, terminalTint); tintWaiting = try v(.tintWaiting, tintWaiting); tintDone = try v(.tintDone, tintDone)
+        projectTint = try v(.projectTint, projectTint); projectTintStrength = try v(.projectTintStrength, projectTintStrength)
+        projectColors = try v(.projectColors, projectColors)
         gyroSpeed = try v(.gyroSpeed, gyroSpeed); gyroDeadzone = try v(.gyroDeadzone, gyroDeadzone); gyroSmoothing = try v(.gyroSmoothing, gyroSmoothing)
         gyroYawAxis = try v(.gyroYawAxis, gyroYawAxis); gyroPitchAxis = try v(.gyroPitchAxis, gyroPitchAxis); gyroRollAxis = try v(.gyroRollAxis, gyroRollAxis)
         gyroInvertX = try v(.gyroInvertX, gyroInvertX); gyroInvertY = try v(.gyroInvertY, gyroInvertY)
@@ -92,7 +95,7 @@ struct Config: Decodable {
         case touchpadMode, trackpadSpeed, trackpadAccel, tapToClick, twoFingerScroll, swipeDistance, rumbleOnPress, rumbleStrength, notifyRumble
         case twoFingerSwipe
         case trackpadSmoothing, trackpadSettle, trackpadInvertY, notifyStrength, pressRumbleDuration, rumbleButtons
-        case speechLocale, speechOnDevice, speechTrailingSpace, combos, terminalTint, tintWaiting, tintDone
+        case speechLocale, speechOnDevice, speechTrailingSpace, combos, terminalTint, tintWaiting, tintDone, projectTint, projectTintStrength, projectColors
         case gyroSpeed, gyroDeadzone, gyroSmoothing, gyroYawAxis, gyroPitchAxis, gyroRollAxis, gyroInvertX, gyroInvertY
         case terminalApps, `default`, terminal, apps, menu, terminalMenu
     }
@@ -306,12 +309,14 @@ func setupHaptics(_ c: GCController) {
 var attentionTimer: Timer?
 var attentionOn = false
 
-func startAttention() {
+func startAttention(_ c: (Double, Double, Double)? = nil) {
     attentionTimer?.invalidate()
     var phase = false
+    let (r, g, b) = c ?? (1, 0.1, 0.05)   // project colour when known, else red
     attentionTimer = Timer.scheduledTimer(withTimeInterval: 0.45, repeats: true) { _ in
         phase.toggle()
-        light?.color = phase ? GCColor(red: 1, green: 0.1, blue: 0.05) : GCColor(red: 0.15, green: 0.02, blue: 0.0)
+        light?.color = phase ? GCColor(red: Float(r), green: Float(g), blue: Float(b))
+                             : GCColor(red: Float(r * 0.12), green: Float(g * 0.12), blue: Float(b * 0.12))
     }
     attentionOn = true
     if config.notifyRumble { rumble(config.notifyStrength, 0.12, count: 2, gap: 0.1) }
@@ -470,9 +475,10 @@ func terminalTabScript(_ tty: String, _ body: String) -> String {
 func applyTint(_ tty: String) {
     guard config.terminalTint, let sid = ttyShows[tty] else { return }
     let st = sessions[sid]?.state ?? "working"
-    let want = st == "waiting" ? "waiting" : (st == "done" ? "done" : "normal")
+    let cwd = sessions[sid]?.cwd ?? ""
+    let want = st == "waiting" ? "waiting" : (st == "done" ? "done" : (config.projectTint && !cwd.isEmpty ? "project|" + cwd : "normal"))
     if appliedTint[tty] == want { return }
-    if want != "normal" && originalBG[tty] == nil {
+    if want != "normal" && originalBG[tty] == nil {  // remember the user's background before the first tint
         if let c = appleScript(terminalTabScript(tty, "set c to background color of t\n return ((item 1 of c) as string) & \",\" & ((item 2 of c) as string) & \",\" & ((item 3 of c) as string)")), c != "missing", c.contains(",") {
             originalBG[tty] = "{\(c)}"
         }
@@ -481,9 +487,52 @@ func applyTint(_ tty: String) {
     switch want {
     case "waiting": color = config.tintWaiting
     case "done": color = config.tintDone
+    case _ where want.hasPrefix("project|"): color = tabColor(projectColor(cwd), strength: config.projectTintStrength)
     default: guard let o = originalBG[tty] else { appliedTint[tty] = want; return }; color = o
     }
     if appleScript(terminalTabScript(tty, "set background color of t to \(color)")) != nil { appliedTint[tty] = want }
+}
+
+/// Project colour for a folder: config override -> nearest .vscode/settings.json -> stable hash of the folder name.
+var projectColorCache: [String: (Double, Double, Double)] = [:]
+
+func hexRGB(_ h: String) -> (Double, Double, Double)? {
+    let t = h.trimmingCharacters(in: CharacterSet(charactersIn: "# "))
+    guard t.count >= 6, let v = UInt32(t.prefix(6), radix: 16) else { return nil }
+    return (Double((v >> 16) & 255) / 255, Double((v >> 8) & 255) / 255, Double(v & 255) / 255)
+}
+
+func projectColor(_ cwd: String) -> (Double, Double, Double) {
+    if let c = projectColorCache[cwd] { return c }
+    var result: (Double, Double, Double)?
+    for (key, hex) in config.projectColors where cwd == key || cwd.hasPrefix(key + "/") || (cwd as NSString).lastPathComponent == key {
+        result = hexRGB(hex)
+    }
+    var dir = cwd
+    while result == nil && !dir.isEmpty && dir != "/" && dir != NSHomeDirectory() {
+        let f = dir + "/.vscode/settings.json"
+        if let text = try? String(contentsOfFile: f, encoding: .utf8) {
+            for key in ["titleBar.activeBackground", "activityBar.background", "statusBar.background"] {
+                if let r = text.range(of: "\"\(key)\"\\s*:\\s*\"#[0-9a-fA-F]{6}", options: .regularExpression),
+                   let c = hexRGB(String(text[r].suffix(7))) { result = c; break }
+            }
+        }
+        dir = (dir as NSString).deletingLastPathComponent
+    }
+    if result == nil {
+        // Stable colour from the folder name (git root name if inside one).
+        let name = (cwd as NSString).lastPathComponent
+        var hash: UInt32 = 5381; for b in name.utf8 { hash = hash &* 33 &+ UInt32(b) }
+        let c = NSColor(hue: CGFloat(hash % 360) / 360, saturation: 0.6, brightness: 0.85, alpha: 1).usingColorSpace(.sRGB)!
+        result = (Double(c.redComponent), Double(c.greenComponent), Double(c.blueComponent))
+    }
+    projectColorCache[cwd] = result
+    return result!
+}
+
+func tabColor(_ c: (Double, Double, Double), strength: Double) -> String {
+    func v(_ x: Double) -> Int { Int(min(max(x * strength, 0), 1) * 65535) }
+    return "{\(v(c.0)), \(v(c.1)), \(v(c.2))}"
 }
 
 func refreshTints(for sid: String) { for (tty, s) in ttyShows where s == sid { applyTint(tty) } }
@@ -1153,7 +1202,8 @@ DistributedNotificationCenter.default().addObserver(forName: eventName, object: 
     case "listen": run("listen")
     case let k where k.hasPrefix("run:"): run(String(k.dropFirst(4)))  // test hook
     case "buzz": rumble(config.rumbleStrength, config.pressRumbleDuration)
-    default: startAttention()
+    default:
+        if parts.count > 2, !parts[2].isEmpty { startAttention(projectColor(parts[2])) } else { startAttention() }
     }
 }
 

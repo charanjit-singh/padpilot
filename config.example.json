@@ -101,6 +101,13 @@
     }
   },
 
+  // Terminal.app tab colour per Claude session. Normal = dark tint of the project colour; waiting = red; done = green.
+  // Project colour: projectColors (folder path or name -> hex) > .vscode/settings.json colour > automatic.
+  "terminalTint": true,
+  "projectTint": true,
+  "projectTintStrength": 0.2,
+  "projectColors": {},
+
   // Combos: hold the first button, press the second. A modifier button alone still does its normal action on release.
   "combos": {
     "l1+square": "cmd+c",

@@ -39,7 +39,7 @@ every slash command you actually use. Then it keeps going and runs the rest of y
 <td width="33%" valign="top">
 
 ### 🔔 Agents tap you on the shoulder
-The light bar **pulses red and rumbles** when Claude asks for permission, and **flashes green** when it finishes. In Terminal.app the **tab turns red for the session on screen that needs you**, and **PS jumps straight to it**.
+The light bar **pulses red and rumbles** when Claude asks for permission, and **flashes green** when it finishes. In Terminal.app every tab is **tinted with its project colour** (read from `.vscode/settings.json`), turns **red when the session on screen needs you**, and **PS jumps straight to it**.
 
 </td>
 <td width="33%" valign="top">
