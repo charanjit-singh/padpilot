@@ -1,0 +1,153 @@
+// PadPilot mapping. Saved changes hot-reload within 2s (no restart).
+// Actions: "enter" | "cmd+shift+]" | "repeat:up" (auto-repeat while held) | "hold:space" (held key, Claude push-to-talk)
+//          "seq:esc,esc" | "text:/clear" | "dictation" (macOS, Ctrl Ctrl) | "click:left" | "menu" | "hud" | "draw" | "toggle" | "none"
+// Controls: cross circle square triangle l1 r1 l2 r2 l3 r3 options create ps touchpad up down left right,
+//           "<name>.long" for a long-press variant, swipeLeft/Right/Up/Down when touchpadMode = "gestures".
+// Lookup order: apps[bundleId] -> terminal (if front app is in terminalApps) -> default.
+// Menu items: {"label": "...", "type": "/clear"} types text + Enter ("enter": false to skip), or {"label": "...", "action": "<action>"}.
+{
+  "longPress": 0.45,
+  "repeatDelay": 0.32,
+  "repeatInterval": 0.06,
+
+  // Left stick cursor. mouseMaxSpeed = px/sec at full tilt; mouseCurve higher = finer small movements;
+  // mouseBoost = extra multiplier after holding full tilt for mouseRamp sec; mouseSmoothing 0..0.95.
+  "mouseMaxSpeed": 1100,
+  "mouseCurve": 2.5,
+  "mouseBoost": 2.2,
+  "mouseRamp": 0.45,
+  "mouseSmoothing": 0.5,
+  "deadzone": 0.1,
+  "scrollSpeed": 10,
+
+  // Touchpad: "trackpad" (1 finger cursor, tap = click, 2 fingers scroll) or "gestures" (swipes).
+  "touchpadMode": "trackpad",
+  "trackpadSpeed": 900,
+  "trackpadAccel": 2.0,
+  "tapToClick": true,
+  "twoFingerScroll": 1400,
+  "trackpadSmoothing": 0.5,
+  "trackpadSettle": 0.05,
+  "trackpadInvertY": false,
+  "swipeDistance": 0.6,
+
+  // Rumble
+  "rumbleOnPress": false,
+  "rumbleButtons": ["touchpad", "cross"],
+  "rumbleStrength": 0.9,
+
+  // Built-in speech-to-text (touchpad hold outside Claude Code). e.g. "en-IN", "en-US", "hi-IN"
+  "speechLocale": "en-IN",
+  "speechOnDevice": false,
+  "speechTrailingSpace": true,
+  "pressRumbleDuration": 0.03,
+  "notifyStrength": 1.0,
+  "notifyRumble": true,
+
+  "terminalApps": ["com.apple.Terminal", "dev.zed.Zed", "com.googlecode.iterm2", "com.mitchellh.ghostty"],
+
+  "default": {
+    "up": "repeat:up", "down": "repeat:down", "left": "repeat:left", "right": "repeat:right",
+    "cross": "enter",
+    "circle": "esc",
+    "square": "tab",
+    "triangle": "shift+tab",
+
+    "l1": "cmd+shift+[",
+    "r1": "cmd+shift+]",
+    "l2": "ctrl+left",
+    "r2": "ctrl+right",
+    "swipeLeft": "ctrl+right",
+    "swipeRight": "ctrl+left",
+    "swipeUp": "ctrl+up",
+    "swipeDown": "ctrl+down",
+
+    "options": "cmd+`",
+    "options.long": "cmd+tab",
+    "create": "menu",
+    "create.long": "hud",
+    "ps": "cmd+tab",
+    "ps.long": "toggle",
+
+    "touchpad": "listen",
+    "l3": "click:left",
+    "r3": "click:right"
+  },
+
+  "terminal": {
+    "touchpad": "hold:space",
+    "circle.long": "ctrl+c",
+    "square.long": "ctrl+r",
+    "triangle.long": "seq:esc,esc",
+    "cross.long": "ctrl+o",
+    "l1+down": "seq:ctrl+e,ctrl+u,ctrl+l",
+    "l1+up": "ctrl+y",
+    "l1+right": "none"
+  },
+
+  "apps": {
+    "dev.zed.Zed": {
+      "options.long": "cmd+alt+a"
+    },
+    "com.google.Chrome": {
+      "circle": "cmd+[",
+      "triangle": "cmd+t",
+      "square": "cmd+l"
+    },
+    "com.apple.Safari": {
+      "circle": "cmd+[",
+      "triangle": "cmd+t",
+      "square": "cmd+l"
+    }
+  },
+
+  // Combos: hold the first button, press the second. A modifier button alone still does its normal action on release.
+  "combos": {
+    "l1+square": "cmd+c",
+    "l1+triangle": "cmd+v",
+    "l1+cross": "cmd+ctrl+shift+4",
+    "l1+circle": "cmd+ctrl+shift+3",
+    "l1+left": "repeat:backspace",
+    "l1+down": "seq:cmd+a,backspace",
+    "l1+up": "cmd+z",
+    "l1+right": "cmd+shift+z"
+  },
+
+  // Quick menu in Terminal / Zed (Claude Code)
+  "terminalMenu": [
+    {"label": "Approve  (1)", "action": "1"},
+    {"label": "Approve, don't ask again  (2)", "action": "2"},
+    {"label": "Reject  (Esc)", "action": "esc"},
+    {"label": "Interrupt  (Ctrl+C)", "action": "ctrl+c"},
+    {"label": "Cycle mode / plan  (Shift+Tab)", "action": "shift+tab"},
+    {"label": "/clear", "type": "/clear"},
+    {"label": "/compact", "type": "/compact"},
+    {"label": "/model", "type": "/model"},
+    {"label": "/resume", "type": "/resume"},
+    {"label": "/context", "type": "/context"},
+    {"label": "Rewind  (Esc Esc)", "action": "seq:esc,esc"},
+    {"label": "Transcript  (Ctrl+O)", "action": "ctrl+o"},
+    {"label": "Background task  (Ctrl+B)", "action": "ctrl+b"},
+    {"label": "Zed: Claude Agents tab", "action": "cmd+alt+a"},
+    {"label": "Zed: new Claude Agents tab", "action": "cmd+alt+shift+a"},
+    {"label": "Speak & type (toggle)", "action": "listen"},
+    {"label": "Mission Control", "action": "ctrl+up"},
+    {"label": "Draw on screen", "action": "draw"}
+  ],
+
+  // Quick menu everywhere else
+  "menu": [
+    {"label": "Mission Control", "action": "ctrl+up"},
+    {"label": "App windows", "action": "ctrl+down"},
+    {"label": "Speak & type (toggle)", "action": "listen"},
+    {"label": "New tab", "action": "cmd+t"},
+    {"label": "Reopen closed tab", "action": "cmd+shift+t"},
+    {"label": "Close tab", "action": "cmd+w"},
+    {"label": "Reload", "action": "cmd+r"},
+    {"label": "Find", "action": "cmd+f"},
+    {"label": "Copy", "action": "cmd+c"},
+    {"label": "Paste", "action": "cmd+v"},
+    {"label": "Screenshot", "action": "cmd+shift+5"},
+    {"label": "Draw on screen", "action": "draw"}
+  ]
+}
