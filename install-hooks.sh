@@ -12,11 +12,13 @@ cp "$S" "$S.padpilot-backup"
 A="[ -x $B ] && $B --notify attention --stdin >/dev/null 2>&1; exit 0"
 D="[ -x $B ] && $B --notify done --stdin >/dev/null 2>&1; exit 0"
 W="[ -x $B ] && $B --notify working --stdin >/dev/null 2>&1; exit 0"
-jq --arg a "$A" --arg d "$D" --arg w "$W" '
+E="[ -x $B ] && $B --notify end --stdin >/dev/null 2>&1; exit 0"
+jq --arg a "$A" --arg d "$D" --arg w "$W" --arg e "$E" '
   .hooks.Notification = ((.hooks.Notification // []) + [{"matcher":"permission_prompt|elicitation_dialog","hooks":[{"type":"command","command":$a,"timeout":5}]}]) |
   .hooks.Stop = ((.hooks.Stop // []) + [{"hooks":[{"type":"command","command":$d,"timeout":5}]}]) |
   .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit // []) + [{"hooks":[{"type":"command","command":$w,"timeout":5}]}]) |
-  .hooks.PostToolUse = ((.hooks.PostToolUse // []) + [{"matcher":"*","hooks":[{"type":"command","command":$w,"timeout":5}]}])' "$S.padpilot-backup" > "$S"
+  .hooks.PostToolUse = ((.hooks.PostToolUse // []) + [{"matcher":"*","hooks":[{"type":"command","command":$w,"timeout":5}]}]) |
+  .hooks.SessionEnd = ((.hooks.SessionEnd // []) + [{"hooks":[{"type":"command","command":$e,"timeout":5}]}])' "$S.padpilot-backup" > "$S"
 echo "hooks installed (backup: $S.padpilot-backup)"
 echo "For per-session Terminal tab colours, add this to your status line script right after it reads stdin into \$input:"
 echo '  ( "$HOME/Applications/PadPilot.app/Contents/MacOS/PadPilot" --notify "view|$(printf %s "$input" | jq -r "[(.session_id//\"\"),(.workspace.current_dir//.cwd//\"\")]|join(\"|\")")|$(ps -o tty= -p $$ | tr -d " ")" >/dev/null 2>&1 & )'

@@ -523,7 +523,10 @@ func projectColor(_ cwd: String) -> (Double, Double, Double) {
         // Stable colour from the folder name (git root name if inside one).
         let name = (cwd as NSString).lastPathComponent
         var hash: UInt32 = 5381; for b in name.utf8 { hash = hash &* 33 &+ UInt32(b) }
-        let c = NSColor(hue: CGFloat(hash % 360) / 360, saturation: 0.6, brightness: 0.85, alpha: 1).usingColorSpace(.sRGB)!
+        // Hues that can't be mistaken for "waiting" (red) or "done" (green): ambers/yellows and cyan..magenta.
+        let allowed = Array(40...75) + Array(170...310)
+        let hue = allowed[Int(hash % UInt32(allowed.count))]
+        let c = NSColor(hue: CGFloat(hue) / 360, saturation: 0.6, brightness: 0.85, alpha: 1).usingColorSpace(.sRGB)!
         result = (Double(c.redComponent), Double(c.greenComponent), Double(c.blueComponent))
     }
     projectColorCache[cwd] = result
@@ -544,6 +547,16 @@ func sessionViewed(sid: String, cwd: String, tty: String) {
     sessionTty[sid] = t
     if ttyShows[t] != sid { ttyShows[t] = sid; log("tab \(t) shows \((cwd as NSString).lastPathComponent) [\(sid.prefix(8))]") }
     applyTint(t)
+}
+
+/// Session exited: put every tab that was showing it back to the user's own background.
+func sessionEnded(_ sid: String) {
+    for (tty, s) in ttyShows where s == sid {
+        if let o = originalBG[tty] { _ = appleScript(terminalTabScript(tty, "set background color of t to \(o)")) }
+        ttyShows[tty] = nil; appliedTint[tty] = nil
+    }
+    sessions[sid] = nil; sessionTty[sid] = nil
+    log("session ended [\(sid.prefix(8))]")
 }
 
 func sessionState(sid: String, cwd: String, state: String) {
@@ -1189,6 +1202,12 @@ DistributedNotificationCenter.default().addObserver(forName: eventName, object: 
     let kind = parts[0]
     if kind == "view" { if parts.count >= 4 { sessionViewed(sid: parts[1], cwd: parts[2], tty: parts[3]) }; return }
     log("notify: \(raw)")
+    if kind == "end" { if parts.count >= 2 { sessionEnded(parts[1]) }; return }
+    if kind == "forget" {  // reset every tab PadPilot tinted (test / recovery hook)
+        for (sid, _) in sessions { sessionEnded(sid) }
+        for (tty, o) in originalBG { _ = appleScript(terminalTabScript(tty, "set background color of t to \(o)")) }
+        ttyShows = [:]; appliedTint = [:]; return
+    }
     if parts.count >= 2, ["attention", "done", "working"].contains(kind) {
         sessionState(sid: parts[1], cwd: parts.count > 2 ? parts[2] : "", state: kind == "attention" ? "waiting" : kind)
     }
